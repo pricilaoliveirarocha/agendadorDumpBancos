@@ -5,6 +5,7 @@ Automatiza o dump de dois bancos de um database selecionado e envia os arquivos 
 ## ✨ Sobre
 Este app foi criado para reduzir trabalho manual no backup e compartilhamento de dumps entre a equipe. 
 Ele:
+- Acessa a VPN em OpenVPN Connect
 - recebe um database de entrada
 - gera o dump de dois bancos especificados na configuração
 - publica os arquivos em .zip no Notion automaticamente
