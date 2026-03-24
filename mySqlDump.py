@@ -8,7 +8,7 @@ import zipfile
 import requests
 
 # =========================
-# CONFIGURAÃ‡Ã•ES
+# CONFIGURAÇÕES
 # =========================
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), ".config")

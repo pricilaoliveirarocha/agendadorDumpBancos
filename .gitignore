@@ -1,7 +1,5 @@
-﻿# Sensitive config
-.config
-
-# OS / editor
+﻿.config
 .DS_Store
 Thumbs.db
 .vscode/
+run_dump.cmd
