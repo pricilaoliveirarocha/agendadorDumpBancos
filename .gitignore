@@ -1,0 +1,7 @@
+﻿# Sensitive config
+.config
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

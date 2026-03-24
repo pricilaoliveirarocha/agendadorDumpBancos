@@ -4,6 +4,7 @@ from datetime import datetime
 import socket
 import time
 import json
+import zipfile
 
 # =========================
 # CONFIGURAÃ‡Ã•ES
@@ -17,7 +18,7 @@ def load_config():
         raise FileNotFoundError(
             f"Arquivo .config nao encontrado em: {CONFIG_PATH}"
         )
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "r", encoding="utf-8-sig") as f:
         return json.load(f)
 
 
@@ -35,7 +36,6 @@ DATABASES = _config["DATABASES"]
 
 OUTPUT_DIR = _config["OUTPUT_DIR"]
 LOG_DIR = _config["LOG_DIR"]
-DB_OUTPUT_SUBDIR = _config.get("DB_OUTPUT_SUBDIR", {})
 
 
 def get_date_str():
@@ -126,12 +126,8 @@ def ensure_db_connection():
     return False
 
 
-def make_dump(database_name, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-
-    date_str = get_date_str()
+def dump_database_to_zip(database_name, zip_file, date_str):
     sql_filename = f"{database_name}_{date_str}.sql"
-    sql_filepath = os.path.join(output_dir, sql_filename)
 
     cmd = [
         MYSQLDUMP_PATH,
@@ -145,82 +141,75 @@ def make_dump(database_name, output_dir):
 
     dump_dir = os.path.dirname(MYSQLDUMP_PATH)
 
-    try:
-        with open(sql_filepath, "w", encoding="utf-8") as sql_file:
-            process = subprocess.Popen(
-                cmd,
-                stdout=sql_file,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=dump_dir
-            )
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=dump_dir
+    )
 
-            start = time.time()
-            last_log = 0
-            heartbeat_sec = 30
-            while True:
-                ret = process.poll()
-                now = time.time()
-                if now - last_log >= heartbeat_sec:
-                    last_log = now
-                    size_mb = 0.0
-                    try:
-                        size_mb = os.path.getsize(sql_filepath) / (1024 * 1024)
-                    except OSError:
-                        pass
-                    elapsed = int(now - start)
-                    log_line(
-                        f"Em andamento... {elapsed}s, tamanho {size_mb:.2f} MB"
-                    )
-                if ret is not None:
-                    break
-                if now - start > 600:
-                    process.kill()
-                    raise RuntimeError(
-                        f"Timeout ao gerar dump do banco '{database_name}' (600s)."
-                    )
+    start = time.time()
+    last_log = 0
+    heartbeat_sec = 30
 
-            stderr_out = process.stderr.read() if process.stderr else ""
-            result = subprocess.CompletedProcess(
-                cmd, process.returncode, "", stderr_out
-            )
-    except subprocess.TimeoutExpired:
-        if os.path.exists(sql_filepath):
-            os.remove(sql_filepath)
+    with zip_file.open(sql_filename, "w") as zip_entry:
+        while True:
+            chunk = process.stdout.read(1024 * 1024)
+            if chunk:
+                zip_entry.write(chunk)
+
+            now = time.time()
+            if now - last_log >= heartbeat_sec:
+                last_log = now
+                elapsed = int(now - start)
+                log_line(f"Em andamento... {elapsed}s")
+
+            if not chunk:
+                break
+
+            if now - start > 600:
+                process.kill()
+                raise RuntimeError(
+                    f"Timeout ao gerar dump do banco '{database_name}' (600s)."
+                )
+
+    stderr_out = process.stderr.read().decode("utf-8", errors="replace")
+    process.wait()
+
+    if process.returncode != 0:
         raise RuntimeError(
-            f"Timeout ao gerar dump do banco '{database_name}' (600s)."
+            f"Erro ao gerar dump do banco '{database_name}':\n{stderr_out}"
         )
-
-    if result.returncode != 0:
-        if os.path.exists(sql_filepath):
-            os.remove(sql_filepath)
-
-        raise RuntimeError(
-            f"Erro ao gerar dump do banco '{database_name}':\n{result.stderr}"
-        )
-
-    return sql_filepath
 
 
 def main():
-    log_line(f"-------------------- {get_date_str()} --------------------")
+    date_str = get_date_str()
+    log_line(f"-------------------- {date_str} --------------------")
     if not ensure_db_connection():
         return
 
-    for db_name in DATABASES:
-        log_line(f"Gerando dump do banco: {db_name}")
-        try:
-            subdir = DB_OUTPUT_SUBDIR.get(db_name, "")
-            output_dir = (
-                os.path.join(OUTPUT_DIR, subdir) if subdir else OUTPUT_DIR
-            )
-            sql_path = make_dump(db_name, output_dir)
-            log_line(f"Salvo em: {sql_path}")
-        except Exception as e:
-            log_line(f"ERRO: {e}")
-            raise
-        finally:
-            log_line("")
+    zip_name = f"bancos_{date_str}.zip"
+    zip_path = os.path.join(OUTPUT_DIR, zip_name)
+
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for db_name in DATABASES:
+                log_line(f"Gerando dump do banco: {db_name}")
+                try:
+                    dump_database_to_zip(db_name, zf, date_str)
+                    log_line(f"Adicionado ao ZIP: {db_name}_{date_str}.sql")
+                except Exception as e:
+                    log_line(f"ERRO: {e}")
+                    raise
+                finally:
+                    log_line("")
+        log_line(f"ZIP criado em: {zip_path}")
+    except Exception as e:
+        log_line(f"ERRO ao criar ZIP: {e}")
+        raise
 
     log_line("Backup concluido. OneDrive ira sincronizar automaticamente.")
 
