@@ -10,5 +10,10 @@
     "otm_padrao"
   ],
   "OUTPUT_DIR": "C:\\Users\\SEU_USUARIO\\OneDrive - a2solutions.com.br\\Bancos",
-  "LOG_DIR": "C:\\Users\\SEU_USUARIO\\OneDrive - a2solutions.com.br\\Bancos\\Logs"
+  "LOG_DIR": "C:\\Users\\SEU_USUARIO\\OneDrive - a2solutions.com.br\\Bancos\\Logs",
+  "NOTION_DATABASE_ID": "SEU_DATABASE_ID",
+  "NOTION_FILES_PROPERTY": "Bancos",
+  "NOTION_TITLE_PROPERTY": "Name",
+  "NOTION_TOKEN_ENV": "NOTION_TOKEN",
+  "NOTION_TOKEN": "NOTION_TOKEN"
 }

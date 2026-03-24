@@ -5,6 +5,7 @@ import socket
 import time
 import json
 import zipfile
+import requests
 
 # =========================
 # CONFIGURAÃ‡Ã•ES
@@ -36,6 +37,15 @@ DATABASES = _config["DATABASES"]
 
 OUTPUT_DIR = _config["OUTPUT_DIR"]
 LOG_DIR = _config["LOG_DIR"]
+
+# Notion (opcionais via .config)
+NOTION_DATABASE_ID = _config.get("NOTION_DATABASE_ID", "").strip()
+NOTION_FILES_PROPERTY = _config.get("NOTION_FILES_PROPERTY", "Bancos").strip()
+NOTION_TITLE_PROPERTY = _config.get("NOTION_TITLE_PROPERTY", "Name").strip()
+NOTION_TOKEN_ENV = _config.get("NOTION_TOKEN_ENV", "NOTION_TOKEN").strip()
+NOTION_TOKEN = _config.get("NOTION_TOKEN", "").strip()
+
+NOTION_VERSION = "2026-03-11"
 
 
 def get_date_str():
@@ -182,6 +192,96 @@ def dump_database_to_zip(database_name, zip_file, date_str):
         )
 
 
+def notion_create_file_upload(notion_token):
+    url = "https://api.notion.com/v1/file_uploads"
+    headers = {
+        "Authorization": f"Bearer {notion_token}",
+        "Content-Type": "application/json",
+        "Notion-Version": NOTION_VERSION,
+    }
+    resp = requests.post(url, headers=headers, json={})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def notion_send_file_upload(notion_token, upload_id, file_path):
+    url = f"https://api.notion.com/v1/file_uploads/{upload_id}/send"
+    headers = {
+        "Authorization": f"Bearer {notion_token}",
+        "Notion-Version": NOTION_VERSION,
+    }
+    with open(file_path, "rb") as f:
+        files = {"file": (os.path.basename(file_path), f)}
+        resp = requests.post(url, headers=headers, files=files)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def notion_create_page_with_file(
+    notion_token,
+    database_id,
+    file_upload_id,
+    files_property_name,
+    title_property_name,
+    title_text,
+):
+    url = "https://api.notion.com/v1/pages"
+    headers = {
+        "Authorization": f"Bearer {notion_token}",
+        "Content-Type": "application/json",
+        "Notion-Version": NOTION_VERSION,
+    }
+    payload = {
+        "parent": {"database_id": database_id},
+        "properties": {
+            title_property_name: {
+                "title": [{"type": "text", "text": {"content": title_text}}]
+            },
+            files_property_name: {
+                "type": "files",
+                "files": [
+                    {
+                        "type": "file_upload",
+                        "file_upload": {"id": file_upload_id},
+                    }
+                ],
+            },
+        },
+    }
+    resp = requests.post(url, headers=headers, json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def upload_zip_to_notion(zip_path):
+    if not NOTION_DATABASE_ID:
+        log_line("NOTION_DATABASE_ID nao configurado. Ignorando upload.")
+        return None
+
+    notion_token = NOTION_TOKEN or os.environ.get(NOTION_TOKEN_ENV, "").strip()
+    if not notion_token:
+        log_line("Token do Notion nao definido. Ignorando upload.")
+        return None
+
+    log_line("Iniciando upload do ZIP para o Notion...")
+    upload = notion_create_file_upload(notion_token)
+    upload_id = upload["id"]
+
+    notion_send_file_upload(notion_token, upload_id, zip_path)
+
+    title_text = "SGA e OTM"
+    page = notion_create_page_with_file(
+        notion_token=notion_token,
+        database_id=NOTION_DATABASE_ID,
+        file_upload_id=upload_id,
+        files_property_name=NOTION_FILES_PROPERTY,
+        title_property_name=NOTION_TITLE_PROPERTY,
+        title_text=title_text,
+    )
+    log_line(f"Upload concluido. Page ID: {page.get('id')}")
+    return page
+
+
 def main():
     date_str = get_date_str()
     log_line(f"-------------------- {date_str} --------------------")
@@ -210,6 +310,11 @@ def main():
     except Exception as e:
         log_line(f"ERRO ao criar ZIP: {e}")
         raise
+
+    try:
+        upload_zip_to_notion(zip_path)
+    except Exception as e:
+        log_line(f"ERRO ao enviar para Notion: {e}")
 
     log_line("Backup concluido. OneDrive ira sincronizar automaticamente.")
 
