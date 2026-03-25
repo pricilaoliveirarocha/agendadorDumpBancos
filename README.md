@@ -17,4 +17,4 @@ Ele:
 ## ✅ Requisitos
 - Integração ativa no Notion para permitir o envio automático.
 - Configurações corretas em `.config`
-   
+- Rodar `pip install -r requirements.txt`
